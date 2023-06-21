@@ -28,78 +28,11 @@ import gzip
 from random import randbytes, randint
 
 
-def build_code_tree(pairs):
-    """
-    This function builds a code tree from a list of (code length, symbol) pairs.
-    """
-    nonzero_pairs = [(cl, i) for (cl, i) in pairs if cl > 0]
-    items = deque(sorted(nonzero_pairs))
-    return find_codes("", items)
-
-
-def find_codes(path, items):
-    """
-    This is the actual function which build_code_tree uses to find codes matching the code length.
-
-    I know the DEFLATE RFC provides a more slick way to compute this but I found the easiest conceptual
-    way to do this to simply "walk a binary tree" and greedily emit codes of the right length.
-    """
-    if len(items) == 0:
-        return None
-
-    length, value = items[0]
-
-    if len(path) > length:
-        raise ValueError("unable to construct code")
-
-    if len(path) == length:
-        items.popleft()
-        # truncate tree here and return code
-        return (value, None, None, path)
-
-    left = find_codes(path + "0", items)
-    right = find_codes(path + "1", items)
-    return (None, left, right, None)
-
-
-def build_fixed_literal_lengths_tree():
-    """
-    The DEFLATE RFC defines this as a general purpose code length for the literal / length alphabet.
-    """
-    fixed_code = []
-
-    for i in range(0, 144):
-        fixed_code.append((8, i))
-
-    for i in range(144, 256):
-        fixed_code.append((9, i))
-
-    for i in range(256, 280):
-        fixed_code.append((7, i))
-
-    for i in range(280, 288):
-        fixed_code.append((8, i))
-
-    return build_code_tree(fixed_code)
-
-
-def build_fixed_distance_tree():
-    """
-    The DEFLATE RFC defines this as a general purpose code length for the distance alphabet.
-    """
-    fixed_code = []
-
-    for i in range(0, 32):
-        fixed_code.append((5, i))
-
-    return build_code_tree(fixed_code)
-
-
-fixed_literal_length_tree = build_fixed_literal_lengths_tree()
-fixed_distance_tree = build_fixed_distance_tree()
-
-
 class BitReader:
+    """
+    Helper object to read from bit stream since DEFLATE operates on variable length bit codes.
+    """
+
     def __init__(self, data):
         self.data = bytes(data)
         self.bytepos = 0
@@ -171,44 +104,102 @@ class BitReader:
         return r
 
 
-def next_code(reader: BitReader, tree):
+def test_bit_reader():
+    reader = BitReader(bytes([0b10000001, 0b10101111]))
+    assert reader.readbits(3) == 0b001
+    assert reader.readbits(5) == 0b10000
+
+    assert reader.peekbits(8) == 0b10101111
+    assert reader.peekbits(8) == 0b10101111
+
+    assert reader.readbits(4) == 0b1111
+    assert reader.readbits(4) == 0b1010
+
+    reader = BitReader(bytes([0b10000001, 0b10101111]))
+    assert reader.readbytes(2) == bytes([0b10000001, 0b10101111])
+
+    reader = BitReader(bytes([0b10000001, 0b10101111]))
+    reader.readbits(3)
+    assert reader.readbytes(1) == bytes([0b10101111])
+
+    reader = BitReader(bytes([0b11111110, 0b00100111]))
+    assert reader.readbits(4) == 14
+    assert reader.readbits(4) == 15
+    assert reader.readbits(2) == 3
+    assert reader.readbits(2) == 1
+    assert reader.readbits(2) == 2
+    assert reader.readbits(2) == 0
+
+
+def build_code_tree(pairs):
     """
-    Walks a code tree bit by bit to find the next code.
+    This function builds a code tree from a list of (code length, symbol) pairs.
     """
-    node = tree
-
-    while True:
-        bit = reader.readbits(1)
-        if bit == 0:
-            node = node[1]
-        elif bit == 1:
-            node = node[2]
-        if node[0] is not None:
-            return node[0]
+    nonzero_pairs = [(cl, i) for (cl, i) in pairs if cl > 0]
+    items = deque(sorted(nonzero_pairs))
+    return find_codes("", items)
 
 
-def read_header(data):
+def find_codes(path, items):
     """
-    Reads gzip header and returns compressed data with DEFLATE.
+    This is the actual function which build_code_tree uses to find codes matching the code length.
+
+    I know the DEFLATE RFC provides a more slick way to compute this but I found the easiest conceptual
+    way to do this to simply "walk a binary tree" and greedily emit codes of the right length.
     """
+    if len(items) == 0:
+        return None
 
-    # check identifier gzip 1f8b
-    assert data[0] == 0x1F
-    assert data[1] == 0x8B
+    length, value = items[0]
 
-    # compression should be DEFLATE
-    assert data[2] == 8
+    if len(path) > length:
+        raise ValueError("unable to construct code")
 
-    # flags should all be zero
-    assert data[3] == 0
+    if len(path) == length:
+        items.popleft()
+        # truncate tree here and return code
+        return (value, None, None, path)
 
-    # extra flags should be 2 (best compression)
-    assert data[8] == 2
+    left = find_codes(path + "0", items)
+    right = find_codes(path + "1", items)
+    return (None, left, right, None)
 
-    # os should be unknown (python behavior)
-    assert data[9] == 255
 
-    return {"mtime": "wow"}, data[10:]
+def build_fixed_literal_lengths_tree():
+    """
+    The DEFLATE RFC defines this as a general purpose code length for the literal / length alphabet.
+    """
+    fixed_code = []
+
+    for i in range(0, 144):
+        fixed_code.append((8, i))
+
+    for i in range(144, 256):
+        fixed_code.append((9, i))
+
+    for i in range(256, 280):
+        fixed_code.append((7, i))
+
+    for i in range(280, 288):
+        fixed_code.append((8, i))
+
+    return build_code_tree(fixed_code)
+
+
+def build_fixed_distance_tree():
+    """
+    The DEFLATE RFC defines this as a general purpose code length for the distance alphabet.
+    """
+    fixed_code = []
+
+    for i in range(0, 32):
+        fixed_code.append((5, i))
+
+    return build_code_tree(fixed_code)
+
+
+fixed_literal_length_tree = build_fixed_literal_lengths_tree()
+fixed_distance_tree = build_fixed_distance_tree()
 
 
 # Now we have quite a few constants defined in the DEFLATE RFC. These seem to be based on statistical
@@ -347,18 +338,6 @@ distance_extra_bits = [
 cl_code_order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
 
 
-def decode_length(reader, code):
-    index = code - 257
-    extra_bits = reader.readbits(length_extra_bits[index])
-    return length_base[index] + extra_bits
-
-
-def decode_distance(reader, code):
-    index = code
-    extra_bits = reader.readbits(distance_extra_bits[index])
-    return distance_base[index] + extra_bits
-
-
 def decompress(gzdata):
     _, compressed_data = read_header(gzdata)
 
@@ -403,6 +382,58 @@ def decompress(gzdata):
         raise NotImplementedError(f"Not implemented block type {block_type}")
 
     return bytes(output)
+
+
+def read_header(data):
+    """
+    Reads gzip header and returns compressed data with DEFLATE.
+    """
+
+    # check identifier gzip 1f8b
+    assert data[0] == 0x1F
+    assert data[1] == 0x8B
+
+    # compression should be DEFLATE
+    assert data[2] == 8
+
+    # flags should all be zero
+    assert data[3] == 0
+
+    # extra flags should be 2 (best compression)
+    assert data[8] == 2
+
+    # os should be unknown (python behavior)
+    assert data[9] == 255
+
+    return {"mtime": "wow"}, data[10:]
+
+
+def next_code(reader: BitReader, tree):
+    """
+    Walks a code tree bit by bit to find the next code.
+    """
+    node = tree
+
+    while True:
+        bit = reader.readbits(1)
+        if bit == 0:
+            node = node[1]
+        elif bit == 1:
+            node = node[2]
+        if node[0] is not None:
+            return node[0]
+
+
+def decode_length(reader, code):
+    index = code - 257
+    extra_bits = reader.readbits(length_extra_bits[index])
+    return length_base[index] + extra_bits
+
+
+def decode_distance(reader, code):
+    index = code
+    extra_bits = reader.readbits(distance_extra_bits[index])
+    return distance_base[index] + extra_bits
 
 
 def decode_cl_tree(reader, num_codes):
@@ -469,35 +500,8 @@ def decode_huffman_tree(reader, num_codes, cl_tree):
     return [(cl, i) for i, cl in enumerate(code_lengths)]
 
 
-def test_reader():
-    reader = BitReader(bytes([0b10000001, 0b10101111]))
-    assert reader.readbits(3) == 0b001
-    assert reader.readbits(5) == 0b10000
-
-    assert reader.peekbits(8) == 0b10101111
-    assert reader.peekbits(8) == 0b10101111
-
-    assert reader.readbits(4) == 0b1111
-    assert reader.readbits(4) == 0b1010
-
-    reader = BitReader(bytes([0b10000001, 0b10101111]))
-    assert reader.readbytes(2) == bytes([0b10000001, 0b10101111])
-
-    reader = BitReader(bytes([0b10000001, 0b10101111]))
-    reader.readbits(3)
-    assert reader.readbytes(1) == bytes([0b10101111])
-
-    reader = BitReader(bytes([0b11111110, 0b00100111]))
-    assert reader.readbits(4) == 14
-    assert reader.readbits(4) == 15
-    assert reader.readbits(2) == 3
-    assert reader.readbits(2) == 1
-    assert reader.readbits(2) == 2
-    assert reader.readbits(2) == 0
-
-
 def main():
-    test_reader()
+    test_bit_reader()
 
     examples = [
         ("empty", b""),
