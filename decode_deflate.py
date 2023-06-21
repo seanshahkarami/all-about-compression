@@ -337,15 +337,24 @@ distance_extra_bits = [
 
 
 def decompress(gzdata):
+    """
+    This is the main entry point to DEFLATE decompression. Note, we only read a single block here but it's
+    obvious how to extend this to multiple blocks.
+    """
     _, compressed_data = read_header(gzdata)
 
     output = bytearray()
 
     reader = BitReader(compressed_data)
 
+    # read block header
     block_final = reader.readbits(1)
     block_type = reader.readbits(2)
 
+    # handle block based on whether it's:
+    # 0: uncompressed
+    # 1: compressed with fixed code
+    # 2: compressed with dynamic code
     if block_type == 0:
         len_bytes = reader.readbytes(2)
         nlen_bytes = reader.readbytes(2)
@@ -361,17 +370,21 @@ def decompress(gzdata):
             reader, output, fixed_literal_length_tree, fixed_distance_tree
         )
     elif block_type == 2:
+        # read code lengths
         num_ll_codes = reader.readbits(5) + 257
         num_dist_codes = reader.readbits(5) + 1
         num_code_lengths = reader.readbits(4) + 4
 
+        # read the runlength code length tree
         cl_tree = decode_cl_tree(reader, num_code_lengths)
 
+        # read the literal / length and distance code lengths
         # NOTE The DEFLATE RFC seems to say ll and dist lengths can exist back to back but
         # I found doing two reads passes all test cases I have.
         ll_lengths = decode_huffman_tree(reader, num_ll_codes, cl_tree)
         dist_lengths = decode_huffman_tree(reader, num_dist_codes, cl_tree)
 
+        # build literal / length and distance code trees
         ll_tree = build_code_tree(ll_lengths)
         dist_tree = build_code_tree(dist_lengths)
 
@@ -423,12 +436,18 @@ def next_code(reader: BitReader, tree):
 
 
 def decode_length(reader, code):
+    """
+    Decode a length using the length + extra bits table from RFC
+    """
     index = code - 257
     extra_bits = reader.readbits(length_extra_bits[index])
     return length_base[index] + extra_bits
 
 
 def decode_distance(reader, code):
+    """
+    Decode a length using the distance + extra bits table from RFC
+    """
     index = code
     extra_bits = reader.readbits(distance_extra_bits[index])
     return distance_base[index] + extra_bits
@@ -452,27 +471,39 @@ def decode_cl_tree(reader, num_codes):
 
 
 def decode_compressed_block(reader, output, literal_length_tree, distance_tree):
+    """
+    Decode compressed block using literal / length codes and distance codes.
+    """
+
     while True:
         code = next_code(reader, literal_length_tree)
 
+        # emit literal codes immediately
         if code < 256:
             output.append(code)
             continue
 
+        # code 256 indicates end of block
         if code == 256:
             return
 
+        # otherwise, finish decoding length from extra bits
         length = decode_length(reader, code)
 
+        # next code will be distance code + extra bits
         code = next_code(reader, distance_tree)
         distance = decode_distance(reader, code)
 
+        # copy previous data using lz77 algorithm and length / distance we just decoded
         start = len(output) - distance
         for i in range(length):
             output.append(output[start + i])
 
 
 def decode_huffman_tree(reader, num_codes, cl_tree):
+    """
+    Decode dynamic Huffman tree using runlength codes specified in DEFLATE RFC.
+    """
     code_lengths = []
 
     while len(code_lengths) < num_codes:
