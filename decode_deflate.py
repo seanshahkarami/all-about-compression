@@ -212,7 +212,7 @@ def read_header(data):
 
 
 # Now we have quite a few constants defined in the DEFLATE RFC. These seem to be based on statistical
-# observations about how frequently
+# observations about how frequently these LZ77 copy operations appear.
 length_base = [
     3,
     4,
