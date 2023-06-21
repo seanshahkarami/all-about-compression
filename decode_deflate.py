@@ -335,8 +335,6 @@ distance_extra_bits = [
     13,
 ]
 
-cl_code_order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
-
 
 def decompress(gzdata):
     _, compressed_data = read_header(gzdata)
@@ -434,6 +432,10 @@ def decode_distance(reader, code):
     index = code
     extra_bits = reader.readbits(distance_extra_bits[index])
     return distance_base[index] + extra_bits
+
+
+# code length tree data is also ordered by statistical appearance of runlength code length codes...
+cl_code_order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15]
 
 
 def decode_cl_tree(reader, num_codes):
