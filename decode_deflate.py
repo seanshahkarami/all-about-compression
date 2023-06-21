@@ -502,9 +502,7 @@ def decode_huffman_tree(reader, num_codes, cl_tree):
     return [(cl, i) for i, cl in enumerate(code_lengths)]
 
 
-def main():
-    test_bit_reader()
-
+def test_decompress():
     examples = [
         ("empty", b""),
         ("0", b"0"),
@@ -524,9 +522,17 @@ def main():
         except AssertionError:
             print("FAIL", name)
 
-    for _ in range(100):
+
+def fuzz_decompress():
+    for _ in range(1000):
         example = randbytes(randint(0, 4096))
         assert decompress(gzip.compress(example)) == example
+
+
+def main():
+    test_bit_reader()
+    test_decompress()
+    fuzz_decompress()
 
 
 if __name__ == "__main__":
