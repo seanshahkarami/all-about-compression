@@ -26,6 +26,7 @@ keeping in mind for the future.
 from collections import deque
 import gzip
 from random import randbytes, randint
+from io import BytesIO
 
 
 class BitReader:
@@ -34,74 +35,33 @@ class BitReader:
     """
 
     def __init__(self, data):
-        self.data = bytes(data)
-        self.bytepos = 0
-        self.bitpos = 0
+        self.reader = BytesIO(data)
+        self.bits = 0
+        self.numbits = 0
+
+    def morebits(self):
+        r = self.reader.read(1)
+        if len(r) != 1:
+            raise IOError("unable to read data")
+        self.bits |= r[0] << self.numbits
+        self.numbits += 8
 
     def peekbits(self, n):
-        r = 0
-
-        bytepos = self.bytepos
-        bitpos = self.bitpos
-
-        for i in range(n):
-            b = (self.data[bytepos] >> bitpos) & 1
-            r |= b << i
-            bitpos += 1
-            if bitpos == 8:
-                bitpos = 0
-                bytepos += 1
-
-        return r
+        while self.numbits < n:
+            self.morebits()
+        mask = (1 << n) - 1
+        return self.bits & mask
 
     def readbits(self, n):
-        r = 0
-
-        bytepos = self.bytepos
-        bitpos = self.bitpos
-
-        for i in range(n):
-            b = (self.data[bytepos] >> bitpos) & 1
-            r |= b << i
-            bitpos += 1
-            if bitpos == 8:
-                bitpos = 0
-                bytepos += 1
-
-        self.bytepos = bytepos
-        self.bitpos = bitpos
-
-        return r
-
-    def readbits_inv(self, n):
-        r = 0
-
-        bytepos = self.bytepos
-        bitpos = self.bitpos
-
-        for i in range(n):
-            b = (self.data[bytepos] >> bitpos) & 1
-            r <<= 1
-            r |= b
-            bitpos += 1
-            if bitpos == 8:
-                bitpos = 0
-                bytepos += 1
-
-        self.bytepos = bytepos
-        self.bitpos = bitpos
-
+        r = self.peekbits(n)
+        self.bits >>= n
+        self.numbits -= n
         return r
 
     def readbytes(self, n):
-        # align to next byte
-        if self.bitpos > 0:
-            self.bitpos = 0
-            self.bytepos += 1
-
-        r = self.data[self.bytepos : self.bytepos + n]
-        self.bytepos += n
-        return r
+        self.bits = 0
+        self.numbits = 0
+        return self.reader.read(n)
 
 
 def test_bit_reader():
