@@ -46,14 +46,11 @@ class BitReader:
         self.bits |= r[0] << self.numbits
         self.numbits += 8
 
-    def peekbits(self, n):
+    def readbits(self, n):
         while self.numbits < n:
             self.morebits()
         mask = (1 << n) - 1
-        return self.bits & mask
-
-    def readbits(self, n):
-        r = self.peekbits(n)
+        r = self.bits & mask
         self.bits >>= n
         self.numbits -= n
         return r
@@ -68,9 +65,6 @@ def test_bit_reader():
     reader = BitReader(bytes([0b10000001, 0b10101111]))
     assert reader.readbits(3) == 0b001
     assert reader.readbits(5) == 0b10000
-
-    assert reader.peekbits(8) == 0b10101111
-    assert reader.peekbits(8) == 0b10101111
 
     assert reader.readbits(4) == 0b1111
     assert reader.readbits(4) == 0b1010
