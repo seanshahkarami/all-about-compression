@@ -302,51 +302,62 @@ def decompress(gzdata):
     reader = BitReader(compressed_data)
 
     # read block header
-    block_final = reader.readbits(1)
-    block_type = reader.readbits(2)
+    while True:
+        block_final = reader.readbits(1)
+        block_type = reader.readbits(2)
 
-    # handle block based on whether it's:
-    # 0: uncompressed
-    # 1: compressed with fixed code
-    # 2: compressed with dynamic code
-    if block_type == 0:
-        len_bytes = reader.readbytes(2)
-        nlen_bytes = reader.readbytes(2)
+        if block_type == 0:
+            decode_uncompressed_block(reader, output)
+        elif block_type == 1:
+            decode_fixed_compressed_block(reader, output)
+        elif block_type == 2:
+            decode_dynamic_compressed_block(reader, output)
+        else:
+            raise NotImplementedError(f"Not implemented block type {block_type}")
 
-        block_len = int.from_bytes(len_bytes, "little")
-        block_nlen = int.from_bytes(nlen_bytes, "little")
-        assert block_len + block_nlen == 0xFFFF
-
-        output.extend(reader.readbytes(block_len))
-
-    elif block_type == 1:
-        decode_compressed_block(
-            reader, output, fixed_literal_length_tree, fixed_distance_tree
-        )
-    elif block_type == 2:
-        # read code lengths
-        num_ll_codes = reader.readbits(5) + 257
-        num_dist_codes = reader.readbits(5) + 1
-        num_code_lengths = reader.readbits(4) + 4
-
-        # read the runlength code length tree
-        cl_tree = decode_cl_tree(reader, num_code_lengths)
-
-        # read the literal / length and distance code lengths
-        # NOTE The DEFLATE RFC seems to say ll and dist lengths can exist back to back but
-        # I found doing two reads passes all test cases I have.
-        ll_lengths = decode_huffman_tree(reader, num_ll_codes, cl_tree)
-        dist_lengths = decode_huffman_tree(reader, num_dist_codes, cl_tree)
-
-        # build literal / length and distance code trees
-        ll_tree = build_code_tree(ll_lengths)
-        dist_tree = build_code_tree(dist_lengths)
-
-        decode_compressed_block(reader, output, ll_tree, dist_tree)
-    else:
-        raise NotImplementedError(f"Not implemented block type {block_type}")
+        if block_final == 1:
+            break
 
     return bytes(output)
+
+
+def decode_uncompressed_block(reader, output):
+    len_bytes = reader.readbytes(2)
+    nlen_bytes = reader.readbytes(2)
+
+    block_len = int.from_bytes(len_bytes, "little")
+    block_nlen = int.from_bytes(nlen_bytes, "little")
+    assert block_len + block_nlen == 0xFFFF
+
+    output.extend(reader.readbytes(block_len))
+
+
+def decode_fixed_compressed_block(reader, output):
+    decode_compressed_block(
+        reader, output, fixed_literal_length_tree, fixed_distance_tree
+    )
+
+
+def decode_dynamic_compressed_block(reader, output):
+    # read code lengths
+    num_ll_codes = reader.readbits(5) + 257
+    num_dist_codes = reader.readbits(5) + 1
+    num_code_lengths = reader.readbits(4) + 4
+
+    # read the runlength code length tree
+    cl_tree = decode_cl_tree(reader, num_code_lengths)
+
+    # read the literal / length and distance code lengths
+    # NOTE The DEFLATE RFC seems to say ll and dist lengths can exist back to back but
+    # I found doing two reads passes all test cases I have.
+    ll_lengths = decode_huffman_tree(reader, num_ll_codes, cl_tree)
+    dist_lengths = decode_huffman_tree(reader, num_dist_codes, cl_tree)
+
+    # build literal / length and distance code trees
+    ll_tree = build_code_tree(ll_lengths)
+    dist_tree = build_code_tree(dist_lengths)
+
+    decode_compressed_block(reader, output, ll_tree, dist_tree)
 
 
 def read_header(data):
