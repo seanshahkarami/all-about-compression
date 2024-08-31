@@ -23,6 +23,7 @@ Additionally, the use of length and distance coding tables along with extra bits
 of variable length protocol is pretty slick. This is a really neat idea and something worth
 keeping in mind for the future.
 """
+
 from collections import deque
 import gzip
 from random import randbytes, randint
@@ -473,29 +474,28 @@ def decode_huffman_tree(reader, num_codes, cl_tree):
 
     while len(code_lengths) < num_codes:
         code = next_code(reader, cl_tree)
-
         if code < 16:
             code_lengths.append(code)
-            continue
-
-        if code == 16:
-            value = code_lengths[-1]
-            copyn = reader.readbits(2) + 3
+        elif code == 16:
+            n = 3 + reader.readbits(2)
+            appendn(code_lengths, code_lengths[-1], n)
         elif code == 17:
-            value = 0
-            copyn = reader.readbits(3) + 3
+            n = 3 + reader.readbits(3)
+            appendn(code_lengths, 0, n)
         elif code == 18:
-            value = 0
-            copyn = reader.readbits(7) + 11
+            n = 11 + reader.readbits(7)
+            appendn(code_lengths, 0, n)
         else:
             raise ValueError(f"unexpected cl code {code}")
-
-        for _ in range(copyn):
-            code_lengths.append(value)
 
     assert len(code_lengths) == num_codes
 
     return [(cl, i) for i, cl in enumerate(code_lengths)]
+
+
+def appendn(arr, val, n):
+    for _ in range(n):
+        arr.append(val)
 
 
 def test_decompress():
